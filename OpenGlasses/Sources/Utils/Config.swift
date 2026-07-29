@@ -356,30 +356,24 @@ struct Config {
     /// All saved model configurations. Persisted in the Keychain because each
     /// `ModelConfig` embeds a provider `apiKey` (see `KeychainService`).
     static var savedModels: [ModelConfig] {
-        guard let data = KeychainService.data(for: modelsKey),
-              var models = try? JSONDecoder().decode([ModelConfig].self, from: data),
-              !models.isEmpty else {
-            // Migrate from legacy single-provider config
+        guard let data = KeychainService.data(for: modelsKey) else {
             return migrateFromLegacy()
         }
-        // Ensure Apple Intelligence model exists
-        if !models.contains(where: { $0.provider == LLMProvider.appleOnDevice.rawValue }) {
-            models.append(appleIntelligenceDefault)
-            setSavedModels(models)
+        guard let models = try? JSONDecoder().decode([ModelConfig].self, from: data) else {
+            return migrateFromLegacy()
         }
-        // Migrate renamed providers
         var needsSave = false
-        for i in models.indices {
-            if models[i].name == "Qwen (Coding Plan subscription)" {
-                models[i].name = "Qwen (Subscription)"
+        var updated = models
+        for i in updated.indices {
+            if updated[i].name == "Qwen (Coding Plan subscription)" {
+                updated[i].name = "Qwen (Subscription)"
                 needsSave = true
             }
         }
-        if needsSave { setSavedModels(models) }
-        return models
+        if needsSave { setSavedModels(updated) }
+        return updated
     }
 
-    /// Pre-configured Apple Intelligence model — zero setup, on-device.
     static let appleIntelligenceDefault = ModelConfig(
         id: "apple-intelligence",
         name: "Apple Intelligence",
@@ -391,7 +385,35 @@ struct Config {
 
     static func setSavedModels(_ models: [ModelConfig]) {
         if let data = try? JSONEncoder().encode(models) {
-            KeychainService.setData(data, for: modelsKey)
+            _ = KeychainService.setData(data, for: modelsKey)
+        }
+    }
+
+    static func clearReferences(toRemovedModelIds removedIds: Set<String>) {
+        guard !removedIds.isEmpty else { return }
+        if let stored = UserDefaults.standard.string(forKey: activeModelKey), removedIds.contains(stored) {
+            setActiveModelId(savedModels.first?.id ?? "")
+        }
+        if let stored = UserDefaults.standard.string(forKey: "agentModelId"), removedIds.contains(stored) {
+            setAgentModelId(defaultAgentModelId)
+        }
+        for tier in ModelTier.allCases {
+            if let id = modelIdForTier(tier), removedIds.contains(id) {
+                setModelForTier(tier, modelId: nil)
+            }
+        }
+        let order = modelFallbackOrder.filter { !removedIds.contains($0) }
+        if order != modelFallbackOrder {
+            modelFallbackOrder = order
+        }
+        var personas = savedPersonas
+        var personasChanged = false
+        for i in personas.indices where removedIds.contains(personas[i].modelId) {
+            personas[i].modelId = savedModels.first?.id ?? ""
+            personasChanged = true
+        }
+        if personasChanged {
+            setSavedPersonas(personas)
         }
     }
 
@@ -455,6 +477,10 @@ struct Config {
         // If nothing was migrated, create a blank Anthropic default
         if models.isEmpty {
             models.append(ModelConfig.defaultConfig(for: .anthropic))
+        }
+
+        if !models.contains(where: { $0.provider == LLMProvider.appleOnDevice.rawValue }) {
+            models.append(appleIntelligenceDefault)
         }
 
         // Defensive check - should never happen, but prevent crash

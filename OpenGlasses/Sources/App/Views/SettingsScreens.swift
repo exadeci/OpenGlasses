@@ -142,7 +142,9 @@ struct AIPersonalitySettingsScreen: View {
                     .accessibilityHint("Double-tap to edit")
                 }
                 .onDelete { indexSet in
+                    let removedIds = Set(indexSet.map { modelConfigs[$0].id })
                     modelConfigs.remove(atOffsets: indexSet)
+                    persistModelConfigs(removedIds: removedIds)
                 }
 
                 Button {
@@ -259,15 +261,17 @@ struct AIPersonalitySettingsScreen: View {
                 Config.setSavedModels(modelConfigs)
             }
         }
+        .onAppear {
+            modelConfigs = Config.savedModels
+        }
         .onDisappear {
             saveSettings()
         }
     }
 
-    // MARK: - Save Settings
-
-    private func saveSettings() {
+    private func persistModelConfigs(removedIds: Set<String> = []) {
         Config.setSavedModels(modelConfigs)
+        Config.clearReferences(toRemovedModelIds: removedIds)
 
         if !modelConfigs.contains(where: { $0.id == Config.activeModelId }) {
             if let first = modelConfigs.first {
@@ -275,6 +279,10 @@ struct AIPersonalitySettingsScreen: View {
             }
         }
         appState.llmService.refreshActiveModel()
+    }
+
+    private func saveSettings() {
+        persistModelConfigs()
 
         Config.setIntentClassifierEnabled(intentClassifierEnabled)
         Config.setUserMemoryEnabled(userMemoryEnabled)

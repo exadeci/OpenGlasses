@@ -255,7 +255,18 @@ struct LocalModelManagerView: View {
     }
 
     private func deleteModel(_ modelId: String) {
-        try? localService?.deleteModel(modelId)
+        do {
+            try localService?.deleteModel(modelId)
+            if selectedModelId == modelId {
+                selectedModelId = ""
+            }
+            if loadedLocalModelId == modelId {
+                loadedLocalModelId = nil
+            }
+            downloadError = nil
+        } catch {
+            downloadError = "Could not delete model: \(error.localizedDescription)"
+        }
         refreshDownloaded()
     }
 

@@ -690,6 +690,13 @@ final class LocalLLMService: ObservableObject {
             try FileManager.default.removeItem(at: path)
             print("🗑️ Deleted local model: \(modelId)")
         }
+        let incomplete = modelDirectory.appendingPathComponent(
+            "models--" + modelId.replacingOccurrences(of: "/", with: "--") + ".incomplete",
+            isDirectory: true
+        )
+        if FileManager.default.fileExists(atPath: incomplete.path) {
+            try? FileManager.default.removeItem(at: incomplete)
+        }
     }
 
     /// List all downloaded model IDs by scanning the cache directory.
